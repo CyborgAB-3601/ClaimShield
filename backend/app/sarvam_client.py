@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -96,10 +97,12 @@ def extract_fields(markdown_text: str) -> list[ExtractedField]:
     for raw in parsed.get("fields", []):
         confidence = raw.get("confidence")
         refused = bool(raw.get("refused")) or confidence is None or confidence < CONFIDENCE_THRESHOLD
+        raw_value = raw.get("value")
+        value = None if refused or raw_value is None else str(raw_value)
         results.append(
             ExtractedField(
                 field=raw.get("field", "unknown"),
-                value=None if refused else raw.get("value"),
+                value=value,
                 confidence=confidence,
                 refused=refused,
                 source_line=raw.get("source_line"),
@@ -120,3 +123,12 @@ def run_pipeline(file_path: str, language: str = "hi-IN") -> ExtractionResult:
         digitise_seconds=round(t1 - t0, 2),
         extract_seconds=round(t2 - t1, 2),
     )
+
+
+async def run_pipeline_async(file_path: str, language: str = "hi-IN") -> ExtractionResult:
+    return await asyncio.to_thread(run_pipeline, file_path, language)
+
+
+async def run_pipeline_many(file_paths: list[str], language: str = "hi-IN") -> list[ExtractionResult]:
+    """Run the digitise->extract pipeline for multiple files concurrently."""
+    return await asyncio.gather(*(run_pipeline_async(p, language) for p in file_paths))

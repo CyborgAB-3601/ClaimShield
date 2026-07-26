@@ -112,6 +112,76 @@
   background: white;
 }
 
+/* ---------- Staged file list ---------- */
+
+.staged-file-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.staged-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--rule);
+  background: white;
+  border-radius: 3px;
+  padding: 6px 8px;
+}
+
+.staged-file-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 2px;
+  border: 1px solid var(--rule);
+  flex-shrink: 0;
+}
+
+.staged-file-thumb-doc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: var(--paper-dim);
+}
+
+.staged-file-name {
+  flex: 1;
+  text-align: left;
+  font-size: 0.82rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staged-file-remove {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  border-radius: 50%;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.staged-file-remove:hover:not(:disabled) {
+  border-color: var(--risk);
+  color: var(--risk);
+}
+
 .upload-title {
   font-family: var(--display);
   font-size: 1.25rem;
@@ -361,6 +431,34 @@
   font-style: italic;
 }
 
+.ledger-source-doc {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.raw-markdown-group {
+  margin: 0 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.raw-markdown-filename {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+.raw-markdown-group .raw-markdown {
+  margin: 0;
+}
+
 /* ---------- Fix checklist ---------- */
 
 .fix-checklist {
@@ -432,6 +530,186 @@
   border-radius: 3px;
   overflow-x: auto;
   white-space: pre-wrap;
+}
+
+/* ---------- Findings report ---------- */
+
+.findings-report {
+  background: #f7f1e2;
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  box-shadow: 6px 6px 0 rgba(28, 35, 51, 0.14);
+  animation: rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: 80ms;
+}
+
+.findings-head {
+  padding: 4px 32px 18px;
+  text-align: center;
+  border-bottom: 1px dashed var(--rule);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.findings-head h2 {
+  font-size: 1.6rem;
+  font-style: italic;
+}
+
+.findings-head .stamp-mini {
+  color: var(--ink-soft);
+  border-color: var(--rule-strong);
+  transform: none;
+}
+
+.totals-strip {
+  display: flex;
+  border-bottom: 1px dashed var(--rule);
+}
+
+.totals-cell {
+  flex: 1;
+  padding: 16px 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 1px dashed var(--rule);
+}
+
+.totals-cell:first-child {
+  border-left: none;
+}
+
+.totals-cell span {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.totals-cell strong {
+  font-family: var(--display);
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.totals-cell.claimable strong {
+  color: var(--claim);
+}
+
+.totals-cell.deduct strong {
+  color: var(--risk);
+}
+
+.findings-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.finding-row {
+  border-left: 4px solid var(--rule);
+  background: white;
+  border-radius: 0 3px 3px 0;
+}
+
+.finding-risk-none {
+  border-left-color: var(--claim);
+}
+
+.finding-risk-insufficient_data {
+  border-left-color: var(--refuse);
+}
+
+.finding-risk-likely_rejection {
+  border-left-color: var(--risk);
+}
+
+.finding-row-main {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 12px 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.finding-risk-tag {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+}
+
+.finding-risk-none .finding-risk-tag {
+  border-color: var(--claim);
+  color: var(--claim);
+}
+
+.finding-risk-insufficient_data .finding-risk-tag {
+  border-color: var(--refuse);
+  color: var(--refuse);
+}
+
+.finding-risk-likely_rejection .finding-risk-tag {
+  border-color: var(--risk);
+  color: var(--risk);
+}
+
+.finding-verdict {
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.finding-detail {
+  padding: 0 14px 14px 14px;
+}
+
+.finding-quote {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  background: var(--paper-dim);
+  border-left: 2px solid var(--rule-strong);
+  font-style: italic;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.finding-clause {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.finding-source {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.finding-source q {
+  font-style: italic;
 }
 
 /* ---------- Footer ---------- */

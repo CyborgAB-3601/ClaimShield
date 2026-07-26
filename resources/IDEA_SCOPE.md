@@ -410,21 +410,27 @@ Any change to these requires an explicit scope decision.
 
 ## 15. Current state
 ### Active milestone
-M0 — complete. Moving to M1.
-### Implemented
+M1 — complete. Moving to M2.
+### Implemented (M0)
 - Repo restructured: `backend/` (FastAPI + uv) and `frontend/` (Vite/React), `.env` with `SARVAM_API_KEY` (now correctly gitignored — it was not before).
 - `backend/app/sarvam_client.py`: `digitise()` (Sarvam Digitise API) → `extract_fields()` (Sarvam-30B, prompt-enforced strict JSON + refusal, confidence-threshold safety net in code).
 - `backend/app/main.py`: `POST /api/extract` wiring the pipeline end to end.
 - `frontend/`: upload UI + Claim Ledger results view (claims-desk dossier aesthetic), field confidence, refusal stamp, expandable source-line traceability, raw-digitised-text toggle, timing readout.
+### Implemented (M1)
+- Real test data sourced: `resources/test_docs/jagdeesh_mishra/` — a real photographed handwritten discharge summary, several bills, the actual 53-page HDFC ERGO "my:Optima Secure" policy wording PDF, and the real 6-page reimbursement claim form.
+- `backend/app/policies/hdfc_ergo_optima_secure.json`: hand-curated policy rule-sheet (room-rent "At Actuals" rule, the proportionate-deduction formula, and the 30-day initial waiting-period exclusion), each entry a verbatim quote + section + page number extracted from the real PDF via `pypdf` — no LLM involved in building this file, so no finding can trace back to a hallucinated rule.
+- `backend/app/merge.py`: merges per-document field extractions into one claim record — for each `CLAIM_FIELDS` key, takes the highest-confidence non-refused value across all uploaded documents.
+- `backend/app/rules_engine.py`: deterministic, LLM-free rules engine — room-rent check, waiting-period check (explicitly reports "insufficient data" rather than guessing when the policy inception date isn't available), and claimable/deductible totals.
+- `backend/app/sarvam_client.py`: added `run_pipeline_async`/`run_pipeline_many` to run the digitise→extract pipeline concurrently across multiple uploaded documents (`asyncio.gather` + `asyncio.to_thread`), keeping multi-file latency close to the slowest single file rather than the sum.
+- `backend/app/main.py`: new `POST /api/audit(files: list[UploadFile], policy_id)` — accepts multiple documents in one claim submission, runs them in parallel, merges fields, runs the rules engine, returns merged fields + findings + totals. The original `/api/extract` is untouched (no regression risk).
+- `frontend/`: multi-file staged-upload UI (thumbnail list, remove-per-file, "add another document"), and a new **Rejection-Risk Report** section below the Claim Ledger — a totals strip (bill total / claimable / deductible) plus expandable clause cards (verdict, verbatim policy quote, clause ref + page, source document line), extending the existing dossier aesthetic.
 ### Working locally / Verified
-- **Verified end-to-end through the actual UI**, not just curl: synthetic discharge-summary image → digitise → extract → ledger renders correctly. The deliberately illegible diagnosis line came back **refused** (dash, not a guessed value) with its confidence and source-line traceable. Round-trip latency ~7.7s (digitise 5.5s + extract 2.2s).
-### Scope-affecting finding (confirmed with you)
-- Sarvam **Extract** (native per-field confidence) is Studio-dashboard-only — no REST/SDK endpoint. Locked primary path is **Digitise (API) → Sarvam-30B prompted extraction**, with confidence being LLM-judged uncertainty, not a native Doc AI score. This is now the real implementation, not a fallback.
-- The SDK (`sarvamai==0.1.28`, latest available) does not support `response_format` despite docs — extraction relies on prompt-enforced strict JSON with defensive fence-stripping, not JSON mode.
-### Current blocker
-- Need 4–5 real redacted discharge summaries + itemised bills (you're sourcing these in parallel). Pipeline is proven on synthetic input and will take real docs with no code changes.
+- **Verified end-to-end through the actual browser UI**, not just curl, using the real Jagdish Mishra documents: `discharge_summary.png` (handwritten) + `bill1.png` uploaded together. Merged Claim Ledger came back correct (patient, hospital, dates, diagnosis, room category, room rent, bill total all high-confidence; `procedure` correctly **refused** — the discharge summary has no distinct surgical/procedure line, so refusal was the right call, not a guess). Rejection-Risk Report showed 2 cited findings: room-rent "fully claimable, no cap" (Section B.1.1(A), p.11) and waiting-period "cannot verify — no policy inception date" (Excl03, p.30), with totals Bill ₹6,428.10 / Claimable ₹6,428.10 / Deductible ₹0.00. Two-document wall time ~21.7s digitise + 13.1s extract combined across both files (parallelized, not summed serially).
+- Fixed a real bug found during this verification: the model sometimes returns a numeric JSON value (e.g. `400.0`) instead of a string for fields like `room_rent_per_day`, which failed Pydantic's `str | None` validation. Fixed by coercing non-null values to `str()` in `extract_fields`.
+### Known limitation (by design, not yet solved)
+- `bill1.png`/`bill2.png` in the sample data are alternate itemisations of the *same* admission (not additive), while `bill3.png` (pharmacy) is a genuinely separate charge. The merge rule (highest-confidence value wins, never summed) handles this safely only if the *right* documents are uploaded together — classifying "alternate format of the same bill" vs "separate invoice" automatically is out of scope for M1. For now: upload exactly one representative bill per claim.
 ### Next single action
-- **M1: swap in a real photographed handwritten summary the moment you have one, load 1 policy rule-sheet (room-rent cap), and build the deterministic rules engine + cited rejection-risk report on top of the extracted fields.**
+- **M2: add the remaining 2 test cases (waiting-period exclusion trigger, and a genuine room-rent-cap deduction via a second/adjusted policy variant), wire ClaimCase persistence + tenant isolation, and confirm 3 consecutive cases run without builder intervention.**
 
 ---
 

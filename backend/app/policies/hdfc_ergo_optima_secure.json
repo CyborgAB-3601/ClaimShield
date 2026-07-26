@@ -1,0 +1,25 @@
+{
+  "policy_id": "hdfc_ergo_optima_secure",
+  "display_name": "HDFC ERGO my:Optima Secure (Base Plan)",
+  "source_document": "optima-secure-revision-pw.pdf",
+  "room_rent": {
+    "rule": "at_actuals",
+    "cap_type": "none",
+    "clause_ref": "Section B.1.1(a)",
+    "page": 11,
+    "quote": "Room rent limit shall be 'At Actuals' unless otherwise specified in the Policy Schedule."
+  },
+  "proportionate_deduction": {
+    "clause_ref": "Section B.1.1(a)(iii)",
+    "page": 12,
+    "quote": "In case the Insured Person is admitted in a room that exceeds the category/limit stipulated in the Policy Schedule, the reimbursement/payment of Room Rent charges including all Associated Medical Expenses incurred at Hospital shall be effected in the same proportion as the admissible rate per day bears to the actual rate per day of Room Rent charges.",
+    "formula": "admissible_amount = billed_amount * (admissible_room_rent_per_day / actual_room_rent_per_day)"
+  },
+  "waiting_period_initial": {
+    "clause_ref": "Section C.1.c, Code Excl03",
+    "page": 30,
+    "quote": "Expenses related to the treatment of any illness within 30 days from the first Policy commencement date shall be excluded except claims arising due to an accident.",
+    "days": 30,
+    "requires_field": "policy_inception_date"
+  }
+}

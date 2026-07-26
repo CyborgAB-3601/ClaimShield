@@ -8,3 +8,8 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "sarvamai>=0.1.28",
 ]
+
+[dependency-groups]
+dev = [
+    "pypdf>=6.14.2",
+]

@@ -20,6 +20,7 @@ class ExtractedField(BaseModel):
     confidence: float | None
     refused: bool
     source_line: str | None = None
+    source_document: str | None = None
 
 
 class ExtractionResult(BaseModel):
@@ -27,3 +28,38 @@ class ExtractionResult(BaseModel):
     raw_markdown: str
     digitise_seconds: float
     extract_seconds: float
+
+
+class DocumentResult(BaseModel):
+    filename: str
+    fields: list[ExtractedField]
+    raw_markdown: str
+    digitise_seconds: float
+    extract_seconds: float
+
+
+class Finding(BaseModel):
+    check: str
+    risk: str
+    verdict: str
+    rupee_impact: float | None
+    clause_ref: str
+    page: int
+    quote: str
+    source_document: str | None = None
+    source_line: str | None = None
+
+
+class AuditTotals(BaseModel):
+    bill_total: float | None
+    claimable_amount: float | None
+    deductible_amount: float | None
+
+
+class AuditResponse(BaseModel):
+    documents: list[DocumentResult]
+    merged_fields: list[ExtractedField]
+    policy_id: str
+    policy_display_name: str
+    findings: list[Finding]
+    totals: AuditTotals

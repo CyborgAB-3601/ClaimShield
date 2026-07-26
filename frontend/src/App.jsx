@@ -3,6 +3,7 @@ import { FIELD_LABELS } from './fieldLabels';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8010';
+const POLICY_ID = 'hdfc_ergo_optima_secure';
 
 function StampBadge() {
   return (
@@ -23,16 +24,43 @@ function Perforation() {
   );
 }
 
-function UploadCard({ onFile, fileName, previewUrl, disabled }) {
+function StagedFile({ file, onRemove, disabled }) {
+  const isImage = file.type.startsWith('image/');
+  const previewUrl = isImage ? URL.createObjectURL(file) : null;
+
+  return (
+    <li className="staged-file">
+      {previewUrl ? (
+        <img className="staged-file-thumb" src={previewUrl} alt={file.name} />
+      ) : (
+        <div className="staged-file-thumb staged-file-thumb-doc" aria-hidden="true">
+          PDF
+        </div>
+      )}
+      <span className="staged-file-name">{file.name}</span>
+      <button
+        type="button"
+        className="staged-file-remove"
+        onClick={() => onRemove(file)}
+        disabled={disabled}
+        aria-label={`Remove ${file.name}`}
+      >
+        ×
+      </button>
+    </li>
+  );
+}
+
+function UploadCard({ files, onAddFiles, onRemoveFile, disabled }) {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
 
   const handleFiles = useCallback(
     (fileList) => {
-      const file = fileList?.[0];
-      if (file) onFile(file);
+      const incoming = Array.from(fileList || []);
+      if (incoming.length) onAddFiles(incoming);
     },
-    [onFile],
+    [onAddFiles],
   );
 
   return (
@@ -51,8 +79,12 @@ function UploadCard({ onFile, fileName, previewUrl, disabled }) {
     >
       <Perforation />
       <div className="upload-body">
-        {previewUrl ? (
-          <img className="doc-preview" src={previewUrl} alt="Uploaded document preview" />
+        {files.length > 0 ? (
+          <ul className="staged-file-list">
+            {files.map((f, i) => (
+              <StagedFile key={`${f.name}-${i}`} file={f} onRemove={onRemoveFile} disabled={disabled} />
+            ))}
+          </ul>
         ) : (
           <svg className="upload-icon" viewBox="0 0 64 64" fill="none" aria-hidden="true">
             <rect x="10" y="6" width="44" height="52" rx="2" stroke="currentColor" strokeWidth="2" />
@@ -62,7 +94,7 @@ function UploadCard({ onFile, fileName, previewUrl, disabled }) {
           </svg>
         )}
         <p className="upload-title">
-          {fileName ? fileName : 'Photograph the discharge summary'}
+          {files.length > 0 ? `${files.length} document${files.length > 1 ? 's' : ''} staged` : 'Photograph the discharge summary + bill'}
         </p>
         <p className="upload-hint">Handwritten or mixed-script is fine — illegible fields get flagged, not guessed.</p>
         <button
@@ -71,15 +103,19 @@ function UploadCard({ onFile, fileName, previewUrl, disabled }) {
           disabled={disabled}
           onClick={() => inputRef.current?.click()}
         >
-          {fileName ? 'Choose a different file' : 'Capture / choose file'}
+          {files.length > 0 ? 'Add another document' : 'Capture / choose files'}
         </button>
         <input
           ref={inputRef}
           type="file"
           accept="image/*,.pdf"
           capture="environment"
+          multiple
           hidden
-          onChange={(e) => handleFiles(e.target.files)}
+          onChange={(e) => {
+            handleFiles(e.target.files);
+            e.target.value = '';
+          }}
         />
       </div>
     </div>
@@ -117,6 +153,7 @@ function LedgerRow({ field }) {
         <div className="ledger-source">
           <span className="ledger-source-label">source</span>
           <q>{field.source_line}</q>
+          {field.source_document && <span className="ledger-source-doc">{field.source_document}</span>}
         </div>
       )}
     </li>
@@ -125,7 +162,7 @@ function LedgerRow({ field }) {
 
 function LedgerResult({ result }) {
   const [showRaw, setShowRaw] = useState(false);
-  const refusedCount = result.fields.filter((f) => f.refused).length;
+  const refusedCount = result.merged_fields.filter((f) => f.refused).length;
 
   return (
     <div className="ledger">
@@ -139,7 +176,7 @@ function LedgerResult({ result }) {
         </p>
       </div>
       <ul className="ledger-list">
-        {result.fields.map((f) => (
+        {result.merged_fields.map((f) => (
           <LedgerRow key={f.field} field={f} />
         ))}
       </ul>
@@ -157,41 +194,119 @@ function LedgerResult({ result }) {
           {showRaw ? 'hide digitised source' : 'view digitised source'}
         </button>
         <span className="timing">
-          digitise {result.digitise_seconds}s · extract {result.extract_seconds}s
+          {result.documents.length} doc{result.documents.length > 1 ? 's' : ''} ·{' '}
+          {result.documents.reduce((a, d) => a + d.digitise_seconds, 0).toFixed(1)}s digitise ·{' '}
+          {result.documents.reduce((a, d) => a + d.extract_seconds, 0).toFixed(1)}s extract
         </span>
       </div>
-      {showRaw && <pre className="raw-markdown">{result.raw_markdown}</pre>}
+      {showRaw && (
+        <div className="raw-markdown-group">
+          {result.documents.map((d) => (
+            <div key={d.filename}>
+              <p className="raw-markdown-filename">{d.filename}</p>
+              <pre className="raw-markdown">{d.raw_markdown}</pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const RISK_LABELS = {
+  none: 'CLEAR',
+  insufficient_data: 'VERIFY',
+  likely_rejection: 'AT RISK',
+};
+
+function FindingRow({ finding }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className={`finding-row finding-risk-${finding.risk}`}>
+      <button type="button" className="finding-row-main" onClick={() => setOpen((v) => !v)}>
+        <span className="finding-risk-tag">{RISK_LABELS[finding.risk] || finding.risk}</span>
+        <span className="finding-verdict">{finding.verdict}</span>
+      </button>
+      {open && (
+        <div className="finding-detail">
+          <blockquote className="finding-quote">{finding.quote}</blockquote>
+          <p className="finding-clause">
+            Clause {finding.clause_ref} · p.{finding.page}
+          </p>
+          {finding.source_line && (
+            <p className="finding-source">
+              <span className="ledger-source-label">document</span> <q>{finding.source_line}</q>
+              {finding.source_document && <span className="ledger-source-doc">{finding.source_document}</span>}
+            </p>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function money(v) {
+  if (v === null || v === undefined) return '—';
+  return `₹${v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function FindingsReport({ result }) {
+  return (
+    <div className="findings-report">
+      <Perforation />
+      <div className="findings-head">
+        <h2>Rejection-Risk Report</h2>
+        <span className="stamp-mini">{result.policy_display_name}</span>
+      </div>
+      <div className="totals-strip">
+        <div className="totals-cell">
+          <span>Bill total</span>
+          <strong>{money(result.totals.bill_total)}</strong>
+        </div>
+        <div className="totals-cell claimable">
+          <span>Claimable</span>
+          <strong>{money(result.totals.claimable_amount)}</strong>
+        </div>
+        <div className="totals-cell deduct">
+          <span>Deductible</span>
+          <strong>{money(result.totals.deductible_amount)}</strong>
+        </div>
+      </div>
+      <ul className="findings-list">
+        {result.findings.map((f, i) => (
+          <FindingRow key={i} finding={f} />
+        ))}
+      </ul>
     </div>
   );
 }
 
 function App() {
-  const [file, setFile] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState(null);
+  const [files, setFiles] = useState([]);
   const [status, setStatus] = useState('idle'); // idle | loading | done | error
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const handleFile = useCallback((f) => {
-    setFile(f);
+  const addFiles = useCallback((newFiles) => {
+    setFiles((prev) => [...prev, ...newFiles]);
     setResult(null);
     setStatus('idle');
     setError(null);
-    if (f.type.startsWith('image/')) {
-      setPreviewUrl(URL.createObjectURL(f));
-    } else {
-      setPreviewUrl(null);
-    }
+  }, []);
+
+  const removeFile = useCallback((file) => {
+    setFiles((prev) => prev.filter((f) => f !== file));
   }, []);
 
   const runAudit = useCallback(async () => {
-    if (!file) return;
+    if (files.length === 0) return;
     setStatus('loading');
     setError(null);
     try {
       const form = new FormData();
-      form.append('file', file);
-      const res = await fetch(`${API_URL}/api/extract`, { method: 'POST', body: form });
+      files.forEach((f) => form.append('files', f));
+      form.append('policy_id', POLICY_ID);
+      const res = await fetch(`${API_URL}/api/audit`, { method: 'POST', body: form });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || `Request failed (${res.status})`);
@@ -203,11 +318,10 @@ function App() {
       setError(err.message || 'Something went wrong');
       setStatus('error');
     }
-  }, [file]);
+  }, [files]);
 
   const reset = useCallback(() => {
-    setFile(null);
-    setPreviewUrl(null);
+    setFiles([]);
     setResult(null);
     setStatus('idle');
     setError(null);
@@ -225,9 +339,9 @@ function App() {
 
       <main className="stage">
         <UploadCard
-          onFile={handleFile}
-          fileName={file?.name}
-          previewUrl={previewUrl}
+          files={files}
+          onAddFiles={addFiles}
+          onRemoveFile={removeFile}
           disabled={status === 'loading'}
         />
 
@@ -236,13 +350,13 @@ function App() {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={!file || status === 'loading'}
+              disabled={files.length === 0 || status === 'loading'}
               onClick={runAudit}
             >
               {status === 'loading' ? (
                 <span className="scanning-label">
                   <span className="scan-bar" />
-                  Reading document…
+                  Reading documents…
                 </span>
               ) : (
                 'Run pre-submission audit'
@@ -262,7 +376,12 @@ function App() {
           </div>
         )}
 
-        {status === 'done' && result && <LedgerResult result={result} />}
+        {status === 'done' && result && (
+          <>
+            <LedgerResult result={result} />
+            <FindingsReport result={result} />
+          </>
+        )}
       </main>
 
       <footer className="site-footer">
