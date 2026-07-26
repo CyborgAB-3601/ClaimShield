@@ -490,6 +490,8 @@ function App() {
   const [status, setStatus] = useState('idle'); // idle | loading | done | error
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [fillStatus, setFillStatus] = useState('idle'); // idle | loading | error
+  const [fillError, setFillError] = useState(null);
 
   const addFiles = useCallback((newFiles) => {
     setFiles((prev) => [...prev, ...newFiles]);
@@ -554,7 +556,40 @@ function App() {
     setResult(null);
     setStatus('idle');
     setError(null);
+    setFillStatus('idle');
+    setFillError(null);
   }, []);
+
+  const downloadFilledClaimForm = useCallback(async () => {
+    if (!result || claimFormFiles.length === 0) return;
+    setFillStatus('loading');
+    setFillError(null);
+    try {
+      const form = new FormData();
+      form.append('claim_form', claimFormFiles[0]);
+      form.append('merged_fields', JSON.stringify(result.merged_fields));
+      const res = await fetch(`${API_URL}/api/fill-claim-form`, { method: 'POST', body: form });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Request failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      a.download = match ? match[1] : 'claim_form_filled.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setFillStatus('idle');
+    } catch (err) {
+      setFillError(err.message || 'Something went wrong');
+      setFillStatus('error');
+    }
+  }, [result, claimFormFiles]);
 
   return (
     <div className="page">
@@ -636,6 +671,21 @@ function App() {
           <div className="results-container">
             <ChecklistResult result={result} />
             <FindingsReport result={result} />
+            <div className="fill-form-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={fillStatus === 'loading'}
+                onClick={downloadFilledClaimForm}
+              >
+                {fillStatus === 'loading' ? 'Filling claim form…' : 'Download filled claim form'}
+              </button>
+              {fillStatus === 'error' && (
+                <div className="error-banner">
+                  <strong>Could not fill claim form.</strong> {fillError}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>

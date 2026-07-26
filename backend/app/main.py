@@ -1,12 +1,15 @@
 import asyncio
+import json
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from app.claim_form_extractor import extract_claim_form_schema
 from app.doc_text import extract_paginated_text
+from app.fill_claim_form import fill_claim_form
 from app.merge import merge_fields
 from app.policy_extractor import extract_policy_rules
 from app.rules_engine import run_audit
@@ -182,3 +185,37 @@ def chat(request: ChatRequest):
         return ChatResponse(reply=reply)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Chat failed: {exc}")
+
+
+@app.post("/api/fill-claim-form")
+async def fill_claim_form_endpoint(
+    claim_form: UploadFile = File(...),
+    merged_fields: str = Form(...),
+):
+    """
+    Accept the original blank claim-form PDF and the JSON-serialised list of
+    merged ExtractedField objects (from /api/audit), and return the auto-filled
+    PDF as a download.
+
+    merged_fields should be the JSON string of AuditResponse.merged_fields.
+    """
+    pdf_bytes = await claim_form.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Empty claim form PDF")
+
+    try:
+        fields_list: list[dict] = json.loads(merged_fields)
+    except Exception:
+        raise HTTPException(status_code=422, detail="merged_fields must be valid JSON")
+
+    try:
+        filled_bytes = fill_claim_form(pdf_bytes, fields_list)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"PDF fill failed: {exc}")
+
+    filename = (claim_form.filename or "claim_form").rsplit(".", 1)[0] + "_filled.pdf"
+    return StreamingResponse(
+        iter([filled_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
