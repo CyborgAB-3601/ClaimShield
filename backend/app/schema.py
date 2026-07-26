@@ -56,6 +56,23 @@ class AuditTotals(BaseModel):
     deductible_amount: float | None
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    raw_markdown: str
+    messages: list[ChatMessage]
+    extracted_fields: list[ExtractedField]
+    findings: list[Finding]
+    totals: AuditTotals
+
+
+class ChatResponse(BaseModel):
+    reply: str
+
+
 class AuditResponse(BaseModel):
     documents: list[DocumentResult]
     merged_fields: list[ExtractedField]

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
 import { FIELD_LABELS } from './fieldLabels';
 import './App.css';
 
@@ -281,6 +281,142 @@ function FindingsReport({ result }) {
   );
 }
 
+function DocumentChat({ rawMarkdown, extractedFields, findings, totals }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const scrollRef = useRef(null);
+
+  // Auto-start chat if there are missing fields
+  useEffect(() => {
+    const hasMissing = extractedFields.some(f => f.refused || f.value == null);
+    if (hasMissing && messages.length === 0 && !isLoading) {
+      setIsOpen(true);
+      const initChat = async () => {
+        setIsLoading(true);
+        try {
+          const res = await fetch(`${API_URL}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              raw_markdown: rawMarkdown,
+              extracted_fields: extractedFields,
+              findings: findings,
+              totals: totals,
+              messages: [{ role: 'system', content: 'Initialize missing field interview' }]
+            })
+          });
+          if (!res.ok) throw new Error('Chat failed');
+          const data = await res.json();
+          setMessages([{ role: 'assistant', content: data.reply }]);
+        } catch (err) {
+          console.error(err);
+          // Set a message to prevent infinite retry loop
+          setMessages([{ role: 'assistant', content: 'Sorry, I am unable to connect right now.' }]);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      initChat();
+    }
+  }, [extractedFields, rawMarkdown, messages.length, isLoading]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isLoading]);
+
+  const sendMessage = async (e) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+    
+    const userMsg = { role: 'user', content: input.trim() };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setInput('');
+    setIsLoading(true);
+    
+    try {
+      const res = await fetch(`${API_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          raw_markdown: rawMarkdown,
+          extracted_fields: extractedFields,
+          findings: findings,
+          totals: totals,
+          messages: messages.length > 0 && messages[0].role === 'assistant' 
+            ? [{ role: 'system', content: 'Initialize missing field interview' }, ...newMessages]
+            : newMessages
+        })
+      });
+      if (!res.ok) throw new Error('Chat failed');
+      const data = await res.json();
+      setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
+    } catch (err) {
+      console.error(err);
+      setMessages([...newMessages, { role: 'assistant', content: 'Sorry, there was an error processing your response.' }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <button 
+        className="chat-fab" 
+        onClick={() => setIsOpen(!isOpen)}
+        aria-label="Toggle Claim Assistant"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="document-chat">
+          <div className="chat-header">
+            <h3>Claim Assistant</h3>
+            <button className="chat-close" onClick={() => setIsOpen(false)} aria-label="Close Chat">×</button>
+          </div>
+          <div className="chat-header-sub">
+            <p>Let's complete your missing information.</p>
+          </div>
+          <div className="chat-messages" ref={scrollRef}>
+            {messages.length === 0 && !isLoading && (
+              <div className="chat-empty">All fields are present! You're ready to submit.</div>
+            )}
+            {messages.map((msg, i) => (
+              <div key={i} className={`chat-bubble ${msg.role}`}>
+                {msg.content}
+              </div>
+            ))}
+            {isLoading && (
+              <div className="chat-bubble assistant loading">
+                <span className="dot"></span><span className="dot"></span><span className="dot"></span>
+              </div>
+            )}
+          </div>
+          <form onSubmit={sendMessage} className="chat-input-form">
+            <input 
+              type="text" 
+              value={input} 
+              onChange={(e) => setInput(e.target.value)} 
+              placeholder="Type your answer..."
+              disabled={isLoading || (messages.length === 0 && extractedFields.every(f => !f.refused && f.value != null))}
+            />
+            <button type="submit" className="btn btn-primary" disabled={!input.trim() || isLoading}>
+              Send
+            </button>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
+
 function App() {
   const [files, setFiles] = useState([]);
   const [status, setStatus] = useState('idle'); // idle | loading | done | error
@@ -377,12 +513,21 @@ function App() {
         )}
 
         {status === 'done' && result && (
-          <>
+          <div className="results-container">
             <LedgerResult result={result} />
             <FindingsReport result={result} />
-          </>
+          </div>
         )}
       </main>
+
+      {status === 'done' && result && (
+        <DocumentChat 
+          rawMarkdown={result.documents.map(d => d.raw_markdown).join('\n\n')}
+          extractedFields={result.merged_fields} 
+          findings={result.findings}
+          totals={result.totals}
+        />
+      )}
 
       <footer className="site-footer">
         <span>Sarvam Document Intelligence · Digitise → structured audit</span>

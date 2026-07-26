@@ -111,6 +111,53 @@ def extract_fields(markdown_text: str) -> list[ExtractedField]:
     return results
 
 
+def agent_chat(raw_markdown: str, extracted_fields: list[dict], findings: list[dict], totals: dict, messages: list[dict]) -> str:
+    """Prompt Sarvam-30B to act as an agent that asks for missing info, with full document context."""
+    client = get_client()
+    
+    missing_fields = [f.get("field") for f in extracted_fields if f.get("refused") or f.get("value") is None]
+    
+    system_prompt = f"""You are a helpful health-insurance claim assistant.
+Your goal is to answer the user's questions about their claim and help them complete their claim form by asking for missing information.
+
+--- CONTEXT ---
+The following required fields could not be extracted from the uploaded documents and are MISSING:
+{', '.join(missing_fields) if missing_fields else 'None. All fields are present.'}
+
+EXTRACTED FIELDS:
+{json.dumps(extracted_fields, indent=2)}
+
+AUDIT FINDINGS (Rejection Risks):
+{json.dumps(findings, indent=2)}
+
+TOTALS:
+{json.dumps(totals, indent=2)}
+
+RAW DOCUMENT TEXT:
+{raw_markdown}
+---------------
+
+Instructions:
+1. If the user asks a question about their claim, answer it based on the EXTRACTED FIELDS, AUDIT FINDINGS, TOTALS, and RAW DOCUMENT TEXT provided above.
+2. If there are missing fields, proactively ask the user to provide them one by one. Do NOT ask for all missing fields at once.
+3. When the user provides a field, acknowledge it, and then ask for the next missing field.
+4. If all fields are present or once all missing fields are collected, tell the user that the form is complete and they are ready to submit.
+5. Be concise and polite.
+"""
+    
+    api_messages = [{"role": "system", "content": system_prompt}]
+    for msg in messages:
+        api_messages.append({"role": msg["role"], "content": msg["content"]})
+        
+    response = client.chat.completions(
+        model="sarvam-30b",
+        messages=api_messages,
+        max_tokens=1024,
+        reasoning_effort=None,
+    )
+    return response.choices[0].message.content
+
+
 def run_pipeline(file_path: str, language: str = "hi-IN") -> ExtractionResult:
     t0 = time.monotonic()
     markdown_text = digitise(file_path, language=language)

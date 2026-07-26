@@ -6,8 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.merge import merge_fields
 from app.rules_engine import load_policy, run_audit
-from app.sarvam_client import run_pipeline, run_pipeline_many
-from app.schema import AuditResponse, DocumentResult, ExtractionResult
+from app.sarvam_client import run_pipeline, run_pipeline_many, agent_chat
+from app.schema import AuditResponse, DocumentResult, ExtractionResult, ChatRequest, ChatResponse
 
 app = FastAPI(title="ClaimShield API")
 
@@ -102,3 +102,15 @@ async def audit(files: list[UploadFile] = File(...), policy_id: str = Form(...))
     finally:
         for tmp in tmp_files:
             Path(tmp.name).unlink(missing_ok=True)
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(request: ChatRequest):
+    try:
+        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        fields_dict = [f.model_dump() for f in request.extracted_fields]
+        findings_dict = [f.model_dump() for f in request.findings]
+        totals_dict = request.totals.model_dump()
+        reply = agent_chat(request.raw_markdown, fields_dict, findings_dict, totals_dict, messages)
+        return ChatResponse(reply=reply)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Chat failed: {exc}")
