@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
+import { INSURERS } from './catalog';
+import { LANGUAGES, useTranslate } from './i18n';
+import { getSubmissionSteps } from './submissionSteps';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -8,6 +11,60 @@ function StampBadge() {
     <div className="stamp-badge" aria-hidden="true">
       <span>PRE-SUBMISSION</span>
       <span>AUDIT</span>
+    </div>
+  );
+}
+
+function LanguageSelect({ lang, onChange }) {
+  return (
+    <select className="lang-select" value={lang} onChange={(e) => onChange(e.target.value)} aria-label="Language">
+      {LANGUAGES.map((l) => (
+        <option key={l.code} value={l.code}>
+          {l.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function PolicySelector({ insurerId, policyType, onInsurerChange, onPolicyTypeChange, t }) {
+  const insurer = INSURERS.find((i) => i.id === insurerId) || INSURERS[0];
+  return (
+    <div className="policy-selector">
+      <label className="policy-select-field">
+        <span>{t('insurerLabel')}</span>
+        <select value={insurerId} onChange={(e) => onInsurerChange(e.target.value)}>
+          {INSURERS.map((ins) => (
+            <option key={ins.id} value={ins.id}>
+              {ins.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="policy-select-field">
+        <span>{t('policyTypeLabel')}</span>
+        <select value={policyType} onChange={(e) => onPolicyTypeChange(e.target.value)}>
+          {insurer.policyTypes.map((pt) => (
+            <option key={pt} value={pt}>
+              {pt}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function SubmissionSteps({ lang, portalName, t }) {
+  const steps = useMemo(() => getSubmissionSteps(lang, portalName), [lang, portalName]);
+  return (
+    <div className="submission-steps">
+      <h3>{t('stepsTitle')}</h3>
+      <ol>
+        {steps.map((step, i) => (
+          <li key={i}>{step}</li>
+        ))}
+      </ol>
     </div>
   );
 }
@@ -193,7 +250,7 @@ function groupBySection(fieldSchema, mergedFields) {
   return sections;
 }
 
-function ChecklistResult({ result }) {
+function ChecklistResult({ result, t }) {
   const [showRaw, setShowRaw] = useState(false);
   const sections = useMemo(
     () => groupBySection(result.field_schema, result.merged_fields),
@@ -210,7 +267,7 @@ function ChecklistResult({ result }) {
     <div className="ledger">
       <Perforation />
       <div className="ledger-head">
-        <h2>Claim Form Checklist</h2>
+        <h2>{t('checklistTitle')}</h2>
         <p className="ledger-sub">
           {illegible.length === 0 && missing.length === 0
             ? 'Every field your claim form asks for is filled with usable confidence'
@@ -316,25 +373,25 @@ function money(v) {
   return `₹${v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function FindingsReport({ result }) {
+function FindingsReport({ result, t }) {
   return (
     <div className="findings-report">
       <Perforation />
       <div className="findings-head">
-        <h2>Rejection-Risk Report</h2>
+        <h2>{t('findingsTitle')}</h2>
         <span className="stamp-mini">{result.policy_display_name}</span>
       </div>
       <div className="totals-strip">
         <div className="totals-cell">
-          <span>Bill total</span>
+          <span>{t('billTotalLabel')}</span>
           <strong>{money(result.totals.bill_total)}</strong>
         </div>
         <div className="totals-cell claimable">
-          <span>Claimable</span>
+          <span>{t('claimableLabel')}</span>
           <strong>{money(result.totals.claimable_amount)}</strong>
         </div>
         <div className="totals-cell deduct">
-          <span>Deductible</span>
+          <span>{t('deductibleLabel')}</span>
           <strong>{money(result.totals.deductible_amount)}</strong>
         </div>
       </div>
@@ -492,6 +549,17 @@ function App() {
   const [error, setError] = useState(null);
   const [fillStatus, setFillStatus] = useState('idle'); // idle | loading | error
   const [fillError, setFillError] = useState(null);
+  const [lang, setLang] = useState('en');
+  const [insurerId, setInsurerId] = useState(INSURERS[0].id);
+  const [policyType, setPolicyType] = useState(INSURERS[0].policyTypes[0]);
+  const t = useTranslate(lang);
+  const selectedInsurer = INSURERS.find((i) => i.id === insurerId) || INSURERS[0];
+
+  const handleInsurerChange = useCallback((id) => {
+    setInsurerId(id);
+    const insurer = INSURERS.find((i) => i.id === id) || INSURERS[0];
+    setPolicyType(insurer.policyTypes[0]);
+  }, []);
 
   const addFiles = useCallback((newFiles) => {
     setFiles((prev) => [...prev, ...newFiles]);
@@ -593,13 +661,25 @@ function App() {
 
   return (
     <div className="page">
+      <div className="top-bar">
+        <LanguageSelect lang={lang} onChange={setLang} />
+      </div>
+
       <header className="site-header">
         <div className="wordmark">
           <h1>Claim Shield</h1>
-          <p className="tagline">It won&rsquo;t invent your diagnosis. It will tell you what the insurer won&rsquo;t.</p>
+          <p className="tagline">{t('tagline')}</p>
         </div>
         <StampBadge />
       </header>
+
+      <PolicySelector
+        insurerId={insurerId}
+        policyType={policyType}
+        onInsurerChange={handleInsurerChange}
+        onPolicyTypeChange={setPolicyType}
+        t={t}
+      />
 
       <main className="stage">
         <UploadCard
@@ -607,8 +687,10 @@ function App() {
           onAddFiles={addFiles}
           onRemoveFile={removeFile}
           disabled={status === 'loading'}
-          title="Photograph the discharge summary + bill"
-          hint="Handwritten or mixed-script is fine — illegible fields get flagged, not guessed."
+          title={t('uploadDocsTitle')}
+          hint={t('uploadDocsHint')}
+          addLabel={t('captureChooseBtn')}
+          moreLabel={t('addAnotherDocBtn')}
         />
 
         <div className="upload-grid">
@@ -618,9 +700,9 @@ function App() {
             onAddFiles={addPolicyFiles}
             onRemoveFile={removePolicyFile}
             disabled={status === 'loading'}
-            title="Upload your policy document"
-            hint="The policy wording PDF — required. Clauses are extracted and verified from it directly."
-            addLabel="Choose policy PDF"
+            title={t('uploadPolicyTitle')}
+            hint={t('uploadPolicyHint')}
+            addLabel={t('choosePolicyBtn')}
           />
           <UploadCard
             single
@@ -628,9 +710,9 @@ function App() {
             onAddFiles={addClaimFormFiles}
             onRemoveFile={removeClaimFormFile}
             disabled={status === 'loading'}
-            title="Upload the claim form"
-            hint="Insurer reimbursement claim form — required. We read it to know exactly which fields your claim needs."
-            addLabel="Choose claim form"
+            title={t('uploadClaimFormTitle')}
+            hint={t('uploadClaimFormHint')}
+            addLabel={t('chooseClaimFormBtn')}
           />
         </div>
 
@@ -647,30 +729,30 @@ function App() {
               {status === 'loading' ? (
                 <span className="scanning-label">
                   <span className="scan-bar" />
-                  Reading documents…
+                  {t('scanningLabel')}
                 </span>
               ) : (
-                'Run pre-submission audit'
+                t('runAuditBtn')
               )}
             </button>
           )}
           {(status === 'done' || status === 'error') && (
             <button type="button" className="btn btn-outline" onClick={reset}>
-              Start a new claim
+              {t('newClaimBtn')}
             </button>
           )}
         </div>
 
         {status === 'error' && (
           <div className="error-banner">
-            <strong>Audit failed.</strong> {error}
+            <strong>{t('auditFailedLabel')}</strong> {error}
           </div>
         )}
 
         {status === 'done' && result && (
           <div className="results-container">
-            <ChecklistResult result={result} />
-            <FindingsReport result={result} />
+            <ChecklistResult result={result} t={t} />
+            <FindingsReport result={result} t={t} />
             <div className="fill-form-actions">
               <button
                 type="button"
@@ -678,13 +760,14 @@ function App() {
                 disabled={fillStatus === 'loading'}
                 onClick={downloadFilledClaimForm}
               >
-                {fillStatus === 'loading' ? 'Filling claim form…' : 'Download filled claim form'}
+                {fillStatus === 'loading' ? t('fillingLabel') : t('downloadFilledBtn')}
               </button>
               {fillStatus === 'error' && (
                 <div className="error-banner">
                   <strong>Could not fill claim form.</strong> {fillError}
                 </div>
               )}
+              <SubmissionSteps lang={lang} portalName={selectedInsurer.portalName} t={t} />
             </div>
           </div>
         )}
@@ -700,7 +783,7 @@ function App() {
       )}
 
       <footer className="site-footer">
-        <span>Sarvam Document Intelligence · Digitise → structured audit</span>
+        <span>{t('footerLine')}</span>
       </footer>
     </div>
   );
