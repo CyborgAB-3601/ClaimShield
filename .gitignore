@@ -20,3 +20,4 @@ dist/
 backend/tmp_jobs/
 
 .claude/
+*.DS_Store
