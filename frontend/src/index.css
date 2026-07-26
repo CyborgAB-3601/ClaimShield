@@ -1,0 +1,71 @@
+:root {
+  --paper: #efe6d3;
+  --paper-dim: #e6dabf;
+  --ink: #1c2333;
+  --ink-soft: #4a5063;
+  --rule: #c9bc9c;
+  --rule-strong: #1c2333;
+  --claim: #2f6b4f;
+  --claim-bg: #dfe9dc;
+  --risk: #b23a2e;
+  --risk-bg: #f1ded7;
+  --refuse: #b8791f;
+  --refuse-bg: #f1e3c5;
+  --stamp: #b23a2e;
+
+  --display: 'Fraunces', 'Iowan Old Style', serif;
+  --sans: 'IBM Plex Sans', -apple-system, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(28, 35, 51, 0.055) 1px, transparent 0);
+  background-size: 22px 22px;
+  color: var(--ink);
+  font-family: var(--sans);
+  min-height: 100svh;
+}
+
+#root {
+  min-height: 100svh;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  margin: 0;
+  color: var(--ink);
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--ink);
+  color: var(--paper);
+}
