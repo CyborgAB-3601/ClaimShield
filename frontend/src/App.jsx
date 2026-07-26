@@ -1,9 +1,7 @@
-import { useCallback, useRef, useState, useEffect } from 'react';
-import { FIELD_LABELS } from './fieldLabels';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8010';
-const POLICY_ID = 'hdfc_ergo_optima_secure';
 
 function StampBadge() {
   return (
@@ -51,16 +49,26 @@ function StagedFile({ file, onRemove, disabled }) {
   );
 }
 
-function UploadCard({ files, onAddFiles, onRemoveFile, disabled }) {
+function UploadCard({
+  files,
+  onAddFiles,
+  onRemoveFile,
+  disabled,
+  single = false,
+  title,
+  hint,
+  addLabel = 'Capture / choose files',
+  moreLabel = 'Add another document',
+}) {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
 
   const handleFiles = useCallback(
     (fileList) => {
       const incoming = Array.from(fileList || []);
-      if (incoming.length) onAddFiles(incoming);
+      if (incoming.length) onAddFiles(single ? incoming.slice(0, 1) : incoming);
     },
-    [onAddFiles],
+    [onAddFiles, single],
   );
 
   return (
@@ -94,23 +102,29 @@ function UploadCard({ files, onAddFiles, onRemoveFile, disabled }) {
           </svg>
         )}
         <p className="upload-title">
-          {files.length > 0 ? `${files.length} document${files.length > 1 ? 's' : ''} staged` : 'Photograph the discharge summary + bill'}
+          {files.length > 0
+            ? single
+              ? files[0].name
+              : `${files.length} document${files.length > 1 ? 's' : ''} staged`
+            : title}
         </p>
-        <p className="upload-hint">Handwritten or mixed-script is fine — illegible fields get flagged, not guessed.</p>
-        <button
-          type="button"
-          className="btn btn-outline"
-          disabled={disabled}
-          onClick={() => inputRef.current?.click()}
-        >
-          {files.length > 0 ? 'Add another document' : 'Capture / choose files'}
-        </button>
+        <p className="upload-hint">{hint}</p>
+        {(!single || files.length === 0) && (
+          <button
+            type="button"
+            className="btn btn-outline"
+            disabled={disabled}
+            onClick={() => inputRef.current?.click()}
+          >
+            {files.length > 0 ? moreLabel : addLabel}
+          </button>
+        )}
         <input
           ref={inputRef}
           type="file"
           accept="image/*,.pdf"
           capture="environment"
-          multiple
+          multiple={!single}
           hidden
           onChange={(e) => {
             handleFiles(e.target.files);
@@ -128,22 +142,29 @@ function ConfidenceTag({ confidence }) {
   return <span className="confidence-tag">{pct}%</span>;
 }
 
-function LedgerRow({ field }) {
+function fieldState(field) {
+  if (!field.refused) return 'filled';
+  return field.status === 'illegible' ? 'illegible' : 'missing';
+}
+
+function ChecklistRow({ spec, field }) {
   const [open, setOpen] = useState(false);
-  const label = FIELD_LABELS[field.field] || field.field;
+  const state = fieldState(field);
 
   return (
-    <li className={`ledger-row${field.refused ? ' refused' : ''}`}>
+    <li className={`ledger-row field-state-${state}`}>
       <button
         type="button"
         className="ledger-row-main"
         onClick={() => setOpen((v) => !v)}
         disabled={!field.source_line}
       >
-        <span className="ledger-label">{label}</span>
+        <span className="ledger-label">{spec.label}</span>
         <span className="ledger-leader" aria-hidden="true" />
         {field.refused ? (
-          <span className="ledger-refused-value">— UNREADABLE —</span>
+          <span className={`ledger-refused-value ledger-tag-${state}`}>
+            {state === 'illegible' ? 'ASK DOCTOR / HOSPITAL' : 'MISSING'}
+          </span>
         ) : (
           <span className="ledger-value">{field.value}</span>
         )}
@@ -160,33 +181,69 @@ function LedgerRow({ field }) {
   );
 }
 
-function LedgerResult({ result }) {
+function groupBySection(fieldSchema, mergedFields) {
+  const fieldMap = new Map(mergedFields.map((f) => [f.field, f]));
+  const sections = new Map();
+  for (const spec of fieldSchema) {
+    const field = fieldMap.get(spec.field_key);
+    if (!field) continue;
+    if (!sections.has(spec.section)) sections.set(spec.section, []);
+    sections.get(spec.section).push({ spec, field });
+  }
+  return sections;
+}
+
+function ChecklistResult({ result }) {
   const [showRaw, setShowRaw] = useState(false);
-  const refusedCount = result.merged_fields.filter((f) => f.refused).length;
+  const sections = useMemo(
+    () => groupBySection(result.field_schema, result.merged_fields),
+    [result.field_schema, result.merged_fields],
+  );
+  const labelByKey = useMemo(
+    () => new Map(result.field_schema.map((s) => [s.field_key, s.label])),
+    [result.field_schema],
+  );
+  const illegible = result.merged_fields.filter((f) => f.refused && f.status === 'illegible');
+  const missing = result.merged_fields.filter((f) => f.refused && f.status === 'missing');
 
   return (
     <div className="ledger">
       <Perforation />
       <div className="ledger-head">
-        <h2>Claim Ledger</h2>
+        <h2>Claim Form Checklist</h2>
         <p className="ledger-sub">
-          {refusedCount > 0
-            ? `${refusedCount} field${refusedCount > 1 ? 's' : ''} refused — cannot be read reliably`
-            : 'All fields extracted with usable confidence'}
+          {illegible.length === 0 && missing.length === 0
+            ? 'Every field your claim form asks for is filled with usable confidence'
+            : `${illegible.length} illegible · ${missing.length} missing`}
         </p>
       </div>
-      <ul className="ledger-list">
-        {result.merged_fields.map((f) => (
-          <LedgerRow key={f.field} field={f} />
-        ))}
-      </ul>
-      {refusedCount > 0 && (
+      {[...sections.entries()].map(([section, rows]) => (
+        <div key={section} className="ledger-section">
+          <h3 className="ledger-section-head">{section}</h3>
+          <ul className="ledger-list">
+            {rows.map(({ spec, field }) => (
+              <ChecklistRow key={spec.field_key} spec={spec} field={field} />
+            ))}
+          </ul>
+        </div>
+      ))}
+      {(illegible.length > 0 || missing.length > 0) && (
         <div className="fix-checklist">
-          <span className="stamp-mini">GET RE-CONFIRMED</span>
-          <p>
-            Ask the hospital / doctor to rewrite the flagged field(s) legibly before you submit —
-            everything else is claim-ready.
-          </p>
+          <span className="stamp-mini">FIX BEFORE SUBMITTING</span>
+          <div>
+            {illegible.length > 0 && (
+              <p>
+                <strong>Present but unclear — ask the hospital/doctor to rewrite:</strong>{' '}
+                {illegible.map((f) => labelByKey.get(f.field) || f.field).join(', ')}.
+              </p>
+            )}
+            {missing.length > 0 && (
+              <p>
+                <strong>Not found in any uploaded document — obtain and re-upload:</strong>{' '}
+                {missing.map((f) => labelByKey.get(f.field) || f.field).join(', ')}.
+              </p>
+            )}
+          </div>
         </div>
       )}
       <div className="ledger-footer">
@@ -229,10 +286,19 @@ function FindingRow({ finding }) {
       </button>
       {open && (
         <div className="finding-detail">
-          <blockquote className="finding-quote">{finding.quote}</blockquote>
-          <p className="finding-clause">
-            Clause {finding.clause_ref} · p.{finding.page}
-          </p>
+          {finding.clause_ref === 'not found' ? (
+            <p className="finding-clause finding-clause-missing">
+              No matching clause could be verified in the uploaded policy document.
+            </p>
+          ) : (
+            <>
+              <blockquote className="finding-quote">{finding.quote}</blockquote>
+              <p className="finding-clause">
+                Clause {finding.clause_ref}
+                {finding.page != null ? ` · p.${finding.page}` : ' · page not stated'}
+              </p>
+            </>
+          )}
           {finding.source_line && (
             <p className="finding-source">
               <span className="ledger-source-label">document</span> <q>{finding.source_line}</q>
@@ -419,6 +485,8 @@ function DocumentChat({ rawMarkdown, extractedFields, findings, totals }) {
 
 function App() {
   const [files, setFiles] = useState([]);
+  const [policyFiles, setPolicyFiles] = useState([]);
+  const [claimFormFiles, setClaimFormFiles] = useState([]);
   const [status, setStatus] = useState('idle'); // idle | loading | done | error
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -434,14 +502,37 @@ function App() {
     setFiles((prev) => prev.filter((f) => f !== file));
   }, []);
 
+  const addPolicyFiles = useCallback((newFiles) => {
+    setPolicyFiles(newFiles);
+    setResult(null);
+    setStatus('idle');
+    setError(null);
+  }, []);
+
+  const removePolicyFile = useCallback((file) => {
+    setPolicyFiles((prev) => prev.filter((f) => f !== file));
+  }, []);
+
+  const addClaimFormFiles = useCallback((newFiles) => {
+    setClaimFormFiles(newFiles);
+    setResult(null);
+    setStatus('idle');
+    setError(null);
+  }, []);
+
+  const removeClaimFormFile = useCallback((file) => {
+    setClaimFormFiles((prev) => prev.filter((f) => f !== file));
+  }, []);
+
   const runAudit = useCallback(async () => {
-    if (files.length === 0) return;
+    if (files.length === 0 || policyFiles.length === 0 || claimFormFiles.length === 0) return;
     setStatus('loading');
     setError(null);
     try {
       const form = new FormData();
       files.forEach((f) => form.append('files', f));
-      form.append('policy_id', POLICY_ID);
+      form.append('policy_file', policyFiles[0]);
+      form.append('claim_form', claimFormFiles[0]);
       const res = await fetch(`${API_URL}/api/audit`, { method: 'POST', body: form });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -454,10 +545,12 @@ function App() {
       setError(err.message || 'Something went wrong');
       setStatus('error');
     }
-  }, [files]);
+  }, [files, policyFiles, claimFormFiles]);
 
   const reset = useCallback(() => {
     setFiles([]);
+    setPolicyFiles([]);
+    setClaimFormFiles([]);
     setResult(null);
     setStatus('idle');
     setError(null);
@@ -479,14 +572,41 @@ function App() {
           onAddFiles={addFiles}
           onRemoveFile={removeFile}
           disabled={status === 'loading'}
+          title="Photograph the discharge summary + bill"
+          hint="Handwritten or mixed-script is fine — illegible fields get flagged, not guessed."
         />
+
+        <div className="upload-grid">
+          <UploadCard
+            single
+            files={policyFiles}
+            onAddFiles={addPolicyFiles}
+            onRemoveFile={removePolicyFile}
+            disabled={status === 'loading'}
+            title="Upload your policy document"
+            hint="The policy wording PDF — required. Clauses are extracted and verified from it directly."
+            addLabel="Choose policy PDF"
+          />
+          <UploadCard
+            single
+            files={claimFormFiles}
+            onAddFiles={addClaimFormFiles}
+            onRemoveFile={removeClaimFormFile}
+            disabled={status === 'loading'}
+            title="Upload the claim form"
+            hint="Insurer reimbursement claim form — required. We read it to know exactly which fields your claim needs."
+            addLabel="Choose claim form"
+          />
+        </div>
 
         <div className="stage-actions">
           {status !== 'done' && (
             <button
               type="button"
               className="btn btn-primary"
-              disabled={files.length === 0 || status === 'loading'}
+              disabled={
+                files.length === 0 || policyFiles.length === 0 || claimFormFiles.length === 0 || status === 'loading'
+              }
               onClick={runAudit}
             >
               {status === 'loading' ? (
@@ -514,7 +634,7 @@ function App() {
 
         {status === 'done' && result && (
           <div className="results-container">
-            <LedgerResult result={result} />
+            <ChecklistResult result={result} />
             <FindingsReport result={result} />
           </div>
         )}

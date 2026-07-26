@@ -1,17 +1,17 @@
 from pydantic import BaseModel
 
+# Fixed audit-support field: the claim form only asks for room *category*, never the
+# per-day rent, but the room-rent-cap check needs the rate itself (it's on the itemised
+# bill, not the form). Kept as a single named exception rather than folding the whole
+# audit into claim-form fields — see claim_form_extractor.py.
+ROOM_RENT_FIELD = "room_rent_per_day"
 
-CLAIM_FIELDS = [
-    "patient_name",
-    "hospital_name",
-    "admit_date",
-    "discharge_date",
-    "diagnosis",
-    "procedure",
-    "room_category",
-    "room_rent_per_day",
-    "bill_total",
-]
+
+class ClaimFormFieldSpec(BaseModel):
+    field_key: str
+    label: str
+    section: str
+    hint: str
 
 
 class ExtractedField(BaseModel):
@@ -19,6 +19,7 @@ class ExtractedField(BaseModel):
     value: str | None
     confidence: float | None
     refused: bool
+    status: str = "filled"  # "filled" | "missing" | "illegible"
     source_line: str | None = None
     source_document: str | None = None
 
@@ -44,7 +45,7 @@ class Finding(BaseModel):
     verdict: str
     rupee_impact: float | None
     clause_ref: str
-    page: int
+    page: int | None
     quote: str
     source_document: str | None = None
     source_line: str | None = None
@@ -75,6 +76,7 @@ class ChatResponse(BaseModel):
 
 class AuditResponse(BaseModel):
     documents: list[DocumentResult]
+    field_schema: list[ClaimFormFieldSpec]
     merged_fields: list[ExtractedField]
     policy_id: str
     policy_display_name: str

@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sarvamai import SarvamAI
 
-from app.schema import CLAIM_FIELDS, ExtractedField, ExtractionResult
+from app.schema import ClaimFormFieldSpec, ExtractedField, ExtractionResult
 
 load_dotenv()
 
@@ -42,23 +42,32 @@ def digitise(file_path: str, language: str = "hi-IN") -> str:
             return (Path(tmpdir) / md_files[0]).read_text(encoding="utf-8")
 
 
-EXTRACTION_SYSTEM_PROMPT = f"""You are extracting structured fields from a digitised Indian hospital \
-discharge summary for a health-insurance reimbursement claim. The source text below was produced by \
+def _build_extraction_prompt(field_specs: list[ClaimFormFieldSpec]) -> str:
+    field_lines = "\n".join(
+        f'- "{f.field_key}" ({f.label}, {f.section}): {f.hint}' for f in field_specs
+    )
+    field_names = ", ".join(f.field_key for f in field_specs)
+    return f"""You are extracting structured fields from a digitised Indian hospital discharge summary or \
+itemised bill for a health-insurance reimbursement claim. The source text below was produced by \
 OCR/handwriting-recognition and may contain errors, gaps, or illegible sections marked as unclear.
 
-Extract exactly these fields: {", ".join(CLAIM_FIELDS)}.
+Extract exactly these fields:
+{field_lines}
 
 Rules (must follow exactly):
 1. Only use information explicitly present in the source text. Never infer, guess, or fill in a plausible \
 value from general medical/insurance knowledge.
-2. If a field is not present, is ambiguous, or the surrounding text is marked unclear/illegible, set its \
-"value" to null and "refused" to true. Do not invent a value to avoid leaving it blank.
-3. For every field you DO extract, give a confidence score from 0.0 to 1.0 reflecting how clearly and \
-unambiguously that value appears in the source text, and quote the short "source_line" it came from.
-4. Respond with strict JSON only, in this exact shape:
+2. If a field is simply not mentioned anywhere in the source text, set "value" to null, "refused" to true, and \
+"reason" to "not_present".
+3. If a field IS mentioned but the text is unclear, illegible, contradictory, or ambiguous (e.g. OCR marked it \
+unclear, handwriting garbled), set "value" to null, "refused" to true, and "reason" to "illegible".
+4. For every field you DO extract, give a confidence score from 0.0 to 1.0 reflecting how clearly and \
+unambiguously that value appears in the source text, and quote the short "source_line" it came from, and set \
+"reason" to null.
+5. Respond with strict JSON only, in this exact shape:
 {{"fields": [{{"field": "<name>", "value": "<value or null>", "confidence": <0.0-1.0 or null>, \
-"refused": <true|false>, "source_line": "<quoted source text or null>"}}, ...]}}
-One object per field listed above, in the same order.
+"refused": <true|false>, "reason": "<not_present|illegible|null>", "source_line": "<quoted source text or null>"}}, ...]}}
+One object per field listed above ({field_names}), in the same order.
 """
 
 
@@ -72,8 +81,11 @@ def _strip_json_fence(text: str) -> str:
     return text.strip()
 
 
-def extract_fields(markdown_text: str) -> list[ExtractedField]:
+def extract_fields(markdown_text: str, field_specs: list[ClaimFormFieldSpec]) -> list[ExtractedField]:
     """Prompt Sarvam-30B to pull structured claim fields + confidence out of digitised text.
+
+    field_specs is the dynamic field list derived from the actual uploaded claim form (see
+    claim_form_extractor.py) rather than a fixed hardcoded field list.
 
     Refusal is enforced two ways: the model is instructed to null out anything uncertain,
     and as a safety net any field below CONFIDENCE_THRESHOLD is force-marked refused in code
@@ -83,7 +95,7 @@ def extract_fields(markdown_text: str) -> list[ExtractedField]:
     response = client.chat.completions(
         model="sarvam-30b",
         messages=[
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "system", "content": _build_extraction_prompt(field_specs)},
             {"role": "user", "content": markdown_text},
         ],
         max_tokens=2048,
@@ -99,12 +111,15 @@ def extract_fields(markdown_text: str) -> list[ExtractedField]:
         refused = bool(raw.get("refused")) or confidence is None or confidence < CONFIDENCE_THRESHOLD
         raw_value = raw.get("value")
         value = None if refused or raw_value is None else str(raw_value)
+        reason = raw.get("reason")
+        status = "filled" if not refused else ("missing" if reason == "not_present" else "illegible")
         results.append(
             ExtractedField(
                 field=raw.get("field", "unknown"),
                 value=value,
                 confidence=confidence,
                 refused=refused,
+                status=status,
                 source_line=raw.get("source_line"),
             )
         )
@@ -158,11 +173,13 @@ Instructions:
     return response.choices[0].message.content
 
 
-def run_pipeline(file_path: str, language: str = "hi-IN") -> ExtractionResult:
+def run_pipeline(
+    file_path: str, field_specs: list[ClaimFormFieldSpec], language: str = "hi-IN"
+) -> ExtractionResult:
     t0 = time.monotonic()
     markdown_text = digitise(file_path, language=language)
     t1 = time.monotonic()
-    fields = extract_fields(markdown_text)
+    fields = extract_fields(markdown_text, field_specs)
     t2 = time.monotonic()
     return ExtractionResult(
         fields=fields,
@@ -172,10 +189,14 @@ def run_pipeline(file_path: str, language: str = "hi-IN") -> ExtractionResult:
     )
 
 
-async def run_pipeline_async(file_path: str, language: str = "hi-IN") -> ExtractionResult:
-    return await asyncio.to_thread(run_pipeline, file_path, language)
+async def run_pipeline_async(
+    file_path: str, field_specs: list[ClaimFormFieldSpec], language: str = "hi-IN"
+) -> ExtractionResult:
+    return await asyncio.to_thread(run_pipeline, file_path, field_specs, language)
 
 
-async def run_pipeline_many(file_paths: list[str], language: str = "hi-IN") -> list[ExtractionResult]:
+async def run_pipeline_many(
+    file_paths: list[str], field_specs: list[ClaimFormFieldSpec], language: str = "hi-IN"
+) -> list[ExtractionResult]:
     """Run the digitise->extract pipeline for multiple files concurrently."""
-    return await asyncio.gather(*(run_pipeline_async(p, language) for p in file_paths))
+    return await asyncio.gather(*(run_pipeline_async(p, field_specs, language) for p in file_paths))
